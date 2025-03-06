@@ -11,101 +11,79 @@ from tensorflow.keras.models import load_model
 @st.cache_resource
 def load_model_cached():
     try:
-        model = load_model("model.h5")  # Directly load the saved model
-        print("Model input shape:", model.input_shape)  # Print model's expected input shape
+        model = load_model("model.h5")  # Load the trained model
+        st.sidebar.success("✅ Model loaded successfully!")
         return model
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.sidebar.error(f"❌ Error loading model: {e}")
         return None
 
-# Define utility functions here to avoid import issues
+# Image preprocessing function
 def clean_image(image, target_size=(224, 224)):
-    """Preprocess the image to match the model input shape.
-    The target_size parameter should match your model's expected input dimensions.
-    """
-    image = np.array(image)
-    # Resize the image to the target size
-    image = np.array(Image.fromarray(image).resize(target_size, Image.LANCZOS))
-    # Normalize pixel values (0-1)
-    image = image / 255.0
-    # Adding batch dimensions
-    image = image[np.newaxis, :, :, :3]  # Ensure 3 channels (RGB)
+    """Preprocess the image to match model input size."""
+    image = image.convert("RGB")  # Ensure 3-channel RGB
+    image = image.resize(target_size, Image.LANCZOS)  # Resize to model input size
+    image = np.array(image) / 255.0  # Normalize pixel values
+    image = np.expand_dims(image, axis=0)  # Add batch dimension
     return image
 
+# Prediction function
 def get_prediction(model, image):
-    """Generate predictions from the model for the given image."""
-    # No need to check shape here as we'll handle exceptions in the main code
+    """Generate predictions from the model."""
     predictions = model.predict(image)
-    predictions_arr = np.argmax(predictions, axis=1)
-    return predictions, predictions_arr
+    return predictions, np.argmax(predictions, axis=1)
 
+# Convert predictions into readable results
 def make_results(predictions, predictions_arr):
-    """Convert model predictions into human-readable results."""
     labels = ["Healthy", "Multiple Diseases", "Rust", "Scab"]
     result = {
         "status": labels[int(predictions_arr[0])],
-        "prediction": f"{int(predictions[0][predictions_arr[0]] * 100)}%"
+        "prediction": f"{predictions[0][predictions_arr[0]] * 100:.2f}%"
     }
-    return result
+    return result, labels, predictions
 
-# Removing Streamlit menu and footer
-hide_streamlit_style = """
+# Hide Streamlit menu/footer
+st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True) 
+""", unsafe_allow_html=True)
 
-# Load the model
+# Load model
 model = load_model_cached()
+input_height, input_width = (224, 224)  # Default image size
 
-# Display model information if loaded successfully
-if model is not None:
-    st.sidebar.write("Model loaded successfully")
-    st.sidebar.write(f"Expected input shape: {model.input_shape}")
-    # Determine the correct input size from the model
-    if model.input_shape and len(model.input_shape) == 4:
-        input_height, input_width = model.input_shape[1], model.input_shape[2]
-        st.sidebar.write(f"Using input dimensions: {input_height}x{input_width}")
-    else:
-        # Default to 224x224 if we can't determine from model
-        input_height, input_width = 224, 224
-        st.sidebar.write(f"Using default dimensions: {input_height}x{input_width}")
-else:
-    input_height, input_width = 224, 224  # Default fallback
-
-# Title and description
-st.title('🌿 Plant Disease Detection')
-st.write("Upload an image of a plant's leaf to check if it is healthy or has a disease.")
-
-# File uploader
+# Streamlit UI
+st.title("🌿 Plant Disease Detection")
+st.write("Upload an image of a plant's leaf to detect diseases.")
 uploaded_file = st.file_uploader("Choose an image file", type=["png", "jpg", "jpeg"])
 
-# Process the uploaded file
+# Process image
 if uploaded_file is not None:
     if model is None:
-        st.error("Model failed to load. Please check the model path and file integrity.")
+        st.error("❌ Model not loaded. Please check the model path.")
     else:
         try:
-            st.text("Processing the image...")
-            
-            # Read and display image
             image = Image.open(io.BytesIO(uploaded_file.read()))
             st.image(image, caption="Uploaded Image", use_column_width=True)
-            
-            # Preprocess the image with the correct dimensions from the model
+
+            # Preprocess and debug image
             processed_image = clean_image(image, target_size=(input_width, input_height))
+            st.image(processed_image[0], caption="Processed Image", use_column_width=True)
             
             # Make predictions
-            with st.spinner('Running inference...'):
+            with st.spinner("Running inference..."):
                 predictions, predictions_arr = get_prediction(model, processed_image)
             
-            # Generate results
-            result = make_results(predictions, predictions_arr)
+            # Debugging: Print all class probabilities
+            result, labels, predictions = make_results(predictions, predictions_arr)
             
+            st.write("### 🔍 Prediction Probabilities:")
+            for i, label in enumerate(labels):
+                st.write(f"{label}: {predictions[0][i] * 100:.2f}%")
+
             # Display result
             st.success(f"🌱 The plant is **{result['status']}** with **{result['prediction']}** confidence.")
         except Exception as e:
-            st.error(f"Error processing image: {e}")
-            st.write("Please try another image or check if the image format is supported.")
+            st.error(f"⚠️ Error processing image: {e}")
